@@ -135,7 +135,7 @@ const ElectricBorder = ({
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const octaves = 10;
+        const octaves = 7;           // reduced from 10 — fewer noise layers, same look
         const lacunarity = 1.6;
         const gain = 0.7;
         const amplitude = chaos;
@@ -143,6 +143,10 @@ const ElectricBorder = ({
         const baseFlatness = 0;
         const displacement = 60;
         const borderOffset = 60;
+        const TARGET_FPS = 30;       // cap at 30fps — half the CPU cost
+        const FRAME_MS = 1000 / TARGET_FPS;
+        let lastDrawTime = 0;
+        let isVisible = true;      // IntersectionObserver flag
 
         const updateSize = () => {
             const rect = container.getBoundingClientRect();
@@ -150,11 +154,11 @@ const ElectricBorder = ({
             const height = rect.height + borderOffset * 2;
 
             const dpr = Math.min(window.devicePixelRatio || 1, 2);
-            canvas.width = width * dpr;
+            canvas.width = width * dpr;   // resetting .width clears the canvas & resets transform to identity
             canvas.height = height * dpr;
             canvas.style.width = `${width}px`;
             canvas.style.height = `${height}px`;
-            ctx.scale(dpr, dpr);
+            // NOTE: do NOT call ctx.scale here — drawElectricBorder does setTransform+scale every frame
 
             return { width, height };
         };
@@ -162,7 +166,17 @@ const ElectricBorder = ({
         let { width, height } = updateSize();
 
         const drawElectricBorder = currentTime => {
-            if (!canvas || !ctx) return;
+            if (!canvas || !ctx || !isVisible) {
+                animationRef.current = requestAnimationFrame(drawElectricBorder);
+                return;
+            }
+
+            // FPS cap — skip frames faster than TARGET_FPS
+            if (currentTime - lastDrawTime < FRAME_MS) {
+                animationRef.current = requestAnimationFrame(drawElectricBorder);
+                return;
+            }
+            lastDrawTime = currentTime;
 
             const deltaTime = (currentTime - lastFrameTimeRef.current) / 1000;
             timeRef.current += deltaTime * speed;
@@ -187,7 +201,8 @@ const ElectricBorder = ({
             const radius = Math.min(borderRadius, maxRadius);
 
             const approximatePerimeter = 2 * (borderWidth + borderHeight) + 2 * Math.PI * radius;
-            const sampleCount = Math.floor(approximatePerimeter / 2);
+            // Sample every 4px instead of 2px — half noise calculations, visually identical
+            const sampleCount = Math.floor(approximatePerimeter / 4);
 
             ctx.beginPath();
 
@@ -197,37 +212,19 @@ const ElectricBorder = ({
                 const point = getRoundedRectPoint(progress, left, top, borderWidth, borderHeight, radius);
 
                 const xNoise = octavedNoise(
-                    progress * 8,
-                    octaves,
-                    lacunarity,
-                    gain,
-                    amplitude,
-                    frequency,
-                    timeRef.current,
-                    0,
-                    baseFlatness
+                    progress * 8, octaves, lacunarity, gain,
+                    amplitude, frequency, timeRef.current, 0, baseFlatness
                 );
-
                 const yNoise = octavedNoise(
-                    progress * 8,
-                    octaves,
-                    lacunarity,
-                    gain,
-                    amplitude,
-                    frequency,
-                    timeRef.current,
-                    1,
-                    baseFlatness
+                    progress * 8, octaves, lacunarity, gain,
+                    amplitude, frequency, timeRef.current, 1, baseFlatness
                 );
 
                 const displacedX = point.x + xNoise * scale;
                 const displacedY = point.y + yNoise * scale;
 
-                if (i === 0) {
-                    ctx.moveTo(displacedX, displacedY);
-                } else {
-                    ctx.lineTo(displacedX, displacedY);
-                }
+                if (i === 0) ctx.moveTo(displacedX, displacedY);
+                else ctx.lineTo(displacedX, displacedY);
             }
 
             ctx.closePath();
@@ -235,6 +232,13 @@ const ElectricBorder = ({
 
             animationRef.current = requestAnimationFrame(drawElectricBorder);
         };
+
+        // Pause animation when card is scrolled off-screen
+        const intersectionObserver = new IntersectionObserver(
+            ([entry]) => { isVisible = entry.isIntersecting; },
+            { threshold: 0.01 }
+        );
+        intersectionObserver.observe(container);
 
         const resizeObserver = new ResizeObserver(() => {
             const newSize = updateSize();
@@ -250,6 +254,7 @@ const ElectricBorder = ({
                 cancelAnimationFrame(animationRef.current);
             }
             resizeObserver.disconnect();
+            intersectionObserver.disconnect();
         };
     }, [color, speed, chaos, borderRadius, octavedNoise, getRoundedRectPoint]);
 

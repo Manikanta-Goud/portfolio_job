@@ -6,18 +6,30 @@ export default function IntroScreen({ onDone }) {
     const calledDone = useRef(false);
 
     useEffect(() => {
-        // ONE single animation call — no async gaps, no stutter
-        // Keyframe arrays with 'times' = like CSS @keyframes, runs on compositor
+        // Respect reduced-motion. Otherwise play a continuous (no-hold) intro.
+        const reduceMotion = typeof window !== 'undefined'
+            && window.matchMedia
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        if (reduceMotion) {
+            if (!calledDone.current) {
+                calledDone.current = true;
+                onDone?.();
+            }
+            return;
+        }
+
+        // Single compositor-friendly animation — continuous, no "stops".
         animate(
             scope.current,
             {
-                scale: [0.35, 1.0, 1.0, 4.5],
-                opacity: [0, 1, 1, 0],
+                scale: [0.92, 1.0, 1.08],
+                opacity: [0, 1, 0],
             },
             {
-                duration: 2.2,
-                times: [0, 0.60, 0.75, 1],  // 0% → 60% come in, hold to 75%, burst to 100%
-                ease: ['easeOut', 'linear', 'easeIn'],
+                duration: 1.8,
+                times: [0, 0.55, 1],
+                ease: 'easeInOut',
                 onComplete: () => {
                     if (!calledDone.current) {
                         calledDone.current = true;
